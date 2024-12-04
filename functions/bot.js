@@ -35,25 +35,25 @@ async function getAccountStatement(account, from, to) {
 }
 
 function formatClientInfo(clientInfo) {
-  let formatted = "Client Information:\n\n";
-  formatted += `Name: ${clientInfo.name}\n`;
-  formatted += `Accounts:\n`;
+  let formatted = "👤 Client Information:\n\n";
+  formatted += `Name: ${clientInfo.name}\n\n`;
+  formatted += `💳 Accounts:\n`;
   for (const account of clientInfo.accounts) {
     formatted += `- ID: ${account.id}\n`;
-    formatted += `  Currency: ${account.currencyCode}\n`;
-    formatted += `  Balance: ${account.balance / 100}\n`;
-    formatted += `  Credit Limit: ${account.creditLimit / 100}\n`;
-    formatted += `  Type: ${account.type}\n\n`;
+    formatted += `  💱 Currency: ${account.currencyCode}\n`;
+    formatted += `  💰 Balance: ${account.balance / 100}\n`;
+    formatted += `  💳 Credit Limit: ${account.creditLimit / 100}\n`;
+    formatted += `  📊 Type: ${account.type}\n\n`;
   }
   return formatted;
 }
 
 function formatTransactions(transactions) {
-  let formatted = "Recent Transactions:\n\n";
+  let formatted = "🧾 Recent Transactions:\n\n";
   for (const transaction of transactions) {
-    formatted += `Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
-    formatted += `Amount: ${transaction.amount / 100} ${transaction.currencyCode}\n`;
-    formatted += `Description: ${transaction.description}\n\n`;
+    formatted += `📅 Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
+    formatted += `💸 Amount: ${transaction.amount / 100} ${transaction.currencyCode}\n`;
+    formatted += `📝 Description: ${transaction.description}\n\n`;
   }
   return formatted;
 }
@@ -62,7 +62,8 @@ async function sendTelegramMessage(chatId, message) {
   try {
     const response = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       chat_id: chatId,
-      text: message
+      text: message,
+      parse_mode: 'HTML'
     });
     console.log("Telegram API response:", response.data);
   } catch (error) {
@@ -80,7 +81,9 @@ async function handleTelegramWebhook(body) {
 
     switch (command) {
       case '/start':
-        await sendTelegramMessage(chatId, "Welcome! Available commands:\n/account_info - Get account information\n/statement <account_id> <days> - Get statement for specified account and number of days");
+        await sendTelegramMessage(chatId, "👋 Welcome! Available commands:\n\n" +
+          "📊 /account_info - Get account information\n" +
+          "🧾 /statement <card_id> <days> - Get statement for specified account and number of days");
         break;
       
       case '/account_info':
@@ -89,13 +92,13 @@ async function handleTelegramWebhook(body) {
           const formattedInfo = formatClientInfo(clientInfo);
           await sendTelegramMessage(chatId, formattedInfo);
         } else {
-          await sendTelegramMessage(chatId, "Failed to fetch account information.");
+          await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
         }
         break;
       
       case '/statement':
         if (args.length !== 2) {
-          await sendTelegramMessage(chatId, "Usage: /statement <account_id> <days>");
+          await sendTelegramMessage(chatId, "ℹ️ Enter the card ID and the number of days to show transactions. For example, <code>dxY...5w 3</code> will list transactions for the selected card ID for three days.");
           break;
         }
         
@@ -103,7 +106,7 @@ async function handleTelegramWebhook(body) {
         const days = parseInt(args[1]);
         
         if (isNaN(days) || days <= 0 || days > 31) {
-          await sendTelegramMessage(chatId, "Please provide a valid number of days (1-31).");
+          await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
           break;
         }
         
@@ -113,24 +116,14 @@ async function handleTelegramWebhook(body) {
         const transactions = await getAccountStatement(accountId, from, now);
         if (transactions && transactions.length > 0) {
           const transactionsMessage = formatTransactions(transactions);
-          await sendTelegramMessage(chatId, `Transactions for account ${accountId} in the last ${days} days:\n${transactionsMessage}`);
+          await sendTelegramMessage(chatId, `🧾 Transactions for account ${accountId} in the last ${days} days:\n\n${transactionsMessage}`);
         } else {
-          await sendTelegramMessage(chatId, `No transactions found for account ${accountId} in the last ${days} days.`);
-        }
-        break;
-      
-      case '/rebuild':
-        try {
-          await axios.post('https://api.netlify.com/build_hooks/675079f5f28b9125fc54536e');
-          await sendTelegramMessage(chatId, "Build triggered successfully.");
-        } catch (error) {
-          console.error("Failed to trigger build", error);
-          await sendTelegramMessage(chatId, "Failed to trigger build.");
+          await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${accountId} in the last ${days} days.`);
         }
         break;
 
       default:
-        await sendTelegramMessage(chatId, "Unknown command. Use /start to see available commands.");
+        await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
     }
   }
 }
