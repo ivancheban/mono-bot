@@ -92,7 +92,8 @@ async function handleTelegramWebhook(body) {
     const text = body.message.text;
 
     if (text === '/start') {
-      await sendTelegramMessage(chatId, "👋 Welcome! Please enter your Monobank API token to get started.");
+      await sendTelegramMessage(chatId, "👋 Welcome! To get started, please enter your Monobank API token.\n\n" +
+        "You can obtain your token here: https://api.monobank.ua/index.html");
       userStates[chatId] = { state: 'awaiting_token' };
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_token') {
       userTokens[chatId] = text;
