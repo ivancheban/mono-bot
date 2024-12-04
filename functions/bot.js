@@ -10,6 +10,16 @@ const MONOBANK_API_TOKEN = process.env.MONOBANK_API_TOKEN;
 // Your Telegram Bot token
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// Helper function to convert currency code to symbol
+function getCurrencySymbol(currencyCode) {
+  switch (currencyCode) {
+    case 980: return 'UAH';
+    case 840: return 'USD';
+    case 978: return 'EUR';
+    default: return currencyCode.toString();
+  }
+}
+
 async function getClientInfo() {
   try {
     const response = await axios.get(MONOBANK_CLIENT_INFO_URL, {
@@ -40,9 +50,9 @@ function formatClientInfo(clientInfo) {
   formatted += `💳 Accounts:\n`;
   for (const account of clientInfo.accounts) {
     formatted += `- ID: ${account.id}\n`;
-    formatted += `  💱 Currency: ${account.currencyCode}\n`;
-    formatted += `  💰 Balance: ${account.balance / 100}\n`;
-    formatted += `  💳 Credit Limit: ${account.creditLimit / 100}\n`;
+    formatted += `  💱 Currency: ${getCurrencySymbol(account.currencyCode)}\n`;
+    formatted += `  💰 Balance: ${account.balance / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
+    formatted += `  💳 Credit Limit: ${account.creditLimit / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
     formatted += `  📊 Type: ${account.type}\n\n`;
   }
   return formatted;
@@ -52,7 +62,7 @@ function formatTransactions(transactions) {
   let formatted = "🧾 Recent Transactions:\n\n";
   for (const transaction of transactions) {
     formatted += `📅 Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
-    formatted += `💸 Amount: ${transaction.amount / 100} ${transaction.currencyCode}\n`;
+    formatted += `💸 Amount: ${transaction.amount / 100} ${getCurrencySymbol(transaction.currencyCode)}\n`;
     formatted += `📝 Description: ${transaction.description}\n\n`;
   }
   return formatted;
