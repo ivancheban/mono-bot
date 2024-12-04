@@ -10,9 +10,6 @@ const MONOBANK_API_TOKEN = process.env.MONOBANK_API_TOKEN;
 // Your Telegram Bot token
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Telegram chat ID where you want to send the messages
-const CHAT_ID = process.env.CHAT_ID;
-
 async function getClientInfo() {
   try {
     const response = await axios.get(MONOBANK_CLIENT_INFO_URL, {
@@ -42,7 +39,11 @@ function formatClientInfo(clientInfo) {
   formatted += `Name: ${clientInfo.name}\n`;
   formatted += `Accounts:\n`;
   for (const account of clientInfo.accounts) {
-    formatted += `- ${account.currencyCode} account: ${account.balance / 100} ${account.cashbackType}\n`;
+    formatted += `- ID: ${account.id}\n`;
+    formatted += `  Currency: ${account.currencyCode}\n`;
+    formatted += `  Balance: ${account.balance / 100}\n`;
+    formatted += `  Credit Limit: ${account.creditLimit / 100}\n`;
+    formatted += `  Type: ${account.type}\n\n`;
   }
   return formatted;
 }
@@ -57,10 +58,10 @@ function formatTransactions(transactions) {
   return formatted;
 }
 
-async function sendTelegramMessage(message) {
+async function sendTelegramMessage(chatId, message) {
   try {
     await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: CHAT_ID,
+      chat_id: chatId,
       text: message
     });
   } catch (error) {
@@ -68,37 +69,80 @@ async function sendTelegramMessage(message) {
   }
 }
 
+async function handleTelegramWebhook(body) {
+  const { message } = body;
+  if (message && message.text) {
+    const chatId = message.chat.id;
+    const command = message.text.split(' ')[0].toLowerCase();
+    const args = message.text.split(' ').slice(1);
+
+    switch (command) {
+      case '/start':
+        await sendTelegramMessage(chatId, "Welcome! Available commands:\n/account_info - Get account information\n/statement <account_id> <days> - Get statement for specified account and number of days");
+        break;
+      
+      case '/account_info':
+        const clientInfo = await getClientInfo();
+        if (clientInfo) {
+          const formattedInfo = formatClientInfo(clientInfo);
+          await sendTelegramMessage(chatId, formattedInfo);
+        } else {
+          await sendTelegramMessage(chatId, "Failed to fetch account information.");
+        }
+        break;
+      
+      case '/statement':
+        if (args.length !== 2) {
+          await sendTelegramMessage(chatId, "Usage: /statement <account_id> <days>");
+          break;
+        }
+        
+        const accountId = args[0];
+        const days = parseInt(args[1]);
+        
+        if (isNaN(days) || days <= 0 || days > 31) {
+          await sendTelegramMessage(chatId, "Please provide a valid number of days (1-31).");
+          break;
+        }
+        
+        const now = Math.floor(Date.now() / 1000);
+        const from = now - (days * 86400); // Convert days to seconds
+        
+        const transactions = await getAccountStatement(accountId, from, now);
+        if (transactions && transactions.length > 0) {
+          const transactionsMessage = formatTransactions(transactions);
+          await sendTelegramMessage(chatId, `Transactions for account ${accountId} in the last ${days} days:\n${transactionsMessage}`);
+        } else {
+          await sendTelegramMessage(chatId, `No transactions found for account ${accountId} in the last ${days} days.`);
+        }
+        break;
+      
+      default:
+        await sendTelegramMessage(chatId, "Unknown command. Use /start to see available commands.");
+    }
+  }
+}
+
 exports.handler = async function(event, context) {
-  try {
-    const clientInfo = await getClientInfo();
-    if (!clientInfo) {
-      throw new Error("Failed to fetch client info");
+  if (event.httpMethod === 'POST') {
+    try {
+      const body = JSON.parse(event.body);
+      await handleTelegramWebhook(body);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ message: "Webhook processed successfully" })
+      };
+    } catch (error) {
+      console.error("Error processing webhook:", error);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ message: "Error processing webhook", error: error.toString() })
+      };
     }
-
-    const clientInfoMessage = formatClientInfo(clientInfo);
-    await sendTelegramMessage(clientInfoMessage);
-
-    // Get transactions for the last 24 hours
-    const now = Math.floor(Date.now() / 1000);
-    const oneDayAgo = now - 86400; // 24 hours in seconds
-    
-    for (const account of clientInfo.accounts) {
-      const transactions = await getAccountStatement(account.id, oneDayAgo, now);
-      if (transactions && transactions.length > 0) {
-        const transactionsMessage = formatTransactions(transactions);
-        await sendTelegramMessage(`Transactions for account ${account.id}:\n${transactionsMessage}`);
-      }
-    }
-
+  } else {
     return {
-      statusCode: 200,
-      body: JSON.stringify({ message: "Client info and transactions sent successfully" })
-    };
-  } catch (error) {
-    console.error("An error occurred", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "An error occurred", error: error.toString() })
+      statusCode: 405,
+      body: JSON.stringify({ message: "Method not allowed" })
     };
   }
 };
