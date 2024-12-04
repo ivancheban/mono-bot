@@ -92,14 +92,22 @@ async function handleTelegramWebhook(body) {
     const text = body.message.text;
 
     if (text === '/start') {
-      await sendTelegramMessage(chatId, "👋 Welcome! To get started, please enter your Monobank API token.\n\n" +
-        "You can obtain your token here: https://api.monobank.ua/index.html");
+      await sendTelegramMessage(chatId, "👋 Welcome! To get started, you need to enter your Monobank API token.\n\n" +
+        "You can obtain your token here: https://api.monobank.ua/index.html\n\n" +
+        "Please enter your token now:");
       userStates[chatId] = { state: 'awaiting_token' };
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_token') {
       userTokens[chatId] = text;
-      await sendTelegramMessage(chatId, "Token saved. Available command:\n\n" +
-        "📊 /account_info - Get account information and select an account for statement");
-      userStates[chatId] = { state: 'idle' };
+      const clientInfo = await getClientInfo(userTokens[chatId]);
+      if (clientInfo) {
+        await sendTelegramMessage(chatId, "✅ Token verified and saved successfully. Available command:\n\n" +
+          "📊 /account_info - Get account information and select an account for statement");
+        userStates[chatId] = { state: 'idle' };
+      } else {
+        await sendTelegramMessage(chatId, "❌ Invalid token. Please try again with /start and enter a valid token.");
+        delete userTokens[chatId];
+        userStates[chatId] = { state: 'idle' };
+      }
     } else if (text === '/account_info') {
       if (!userTokens[chatId]) {
         await sendTelegramMessage(chatId, "Please start over with /start and enter your Monobank API token.");
