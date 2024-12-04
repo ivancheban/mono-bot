@@ -53,7 +53,7 @@ function formatClientInfo(clientInfo) {
     formatted += `   💳 Credit Limit: ${account.creditLimit / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
     formatted += `   📊 Type: ${account.type}\n\n`;
   });
-  formatted += "To get a statement, reply with the number of the account you want to view.";
+  formatted += "Click on an account ID below to get a statement.";
   return formatted;
 }
 
@@ -86,10 +86,9 @@ async function sendTelegramMessage(chatId, message, keyboard = null) {
 }
 
 async function handleTelegramWebhook(body) {
-  const { message } = body;
-  if (message && message.text) {
-    const chatId = message.chat.id;
-    const text = message.text.toLowerCase();
+  if (body.message && body.message.text) {
+    const chatId = body.message.chat.id;
+    const text = body.message.text.toLowerCase();
 
     if (text === '/start') {
       await sendTelegramMessage(chatId, "👋 Welcome! Available commands:\n\n" +
@@ -100,49 +99,49 @@ async function handleTelegramWebhook(body) {
       const clientInfo = await getClientInfo();
       if (clientInfo) {
         const formattedInfo = formatClientInfo(clientInfo);
-        await sendTelegramMessage(chatId, formattedInfo);
-        userStates[chatId] = { state: 'awaiting_account_selection', accounts: clientInfo.accounts };
+        const keyboard = {
+          inline_keyboard: clientInfo.accounts.map(account => [{text: account.id, callback_data: `account:${account.id}`}])
+        };
+        await sendTelegramMessage(chatId, formattedInfo, keyboard);
+        userStates[chatId] = { state: 'awaiting_days', accounts: clientInfo.accounts };
       } else {
         await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
       }
     } else if (text === '/cancel') {
       userStates[chatId] = { state: 'idle' };
       await sendTelegramMessage(chatId, "Operation cancelled. What would you like to do next?");
-    } else if (userStates[chatId]) {
-      switch (userStates[chatId].state) {
-        case 'awaiting_account_selection':
-          const accountIndex = parseInt(text) - 1;
-          if (isNaN(accountIndex) || accountIndex < 0 || accountIndex >= userStates[chatId].accounts.length) {
-            await sendTelegramMessage(chatId, "⚠️ Invalid selection. Please choose a number from the list.");
-          } else {
-            userStates[chatId].selectedAccount = userStates[chatId].accounts[accountIndex];
-            userStates[chatId].state = 'awaiting_days';
-            await sendTelegramMessage(chatId, "For how many days would you like to see the statement? (1-31)");
-          }
-          break;
-        case 'awaiting_days':
-          const days = parseInt(text);
-          if (isNaN(days) || days < 1 || days > 31) {
-            await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
-          } else {
-            const now = Math.floor(Date.now() / 1000);
-            const from = now - (days * 86400);
-            const transactions = await getAccountStatement(userStates[chatId].selectedAccount.id, from, now);
-            if (transactions && transactions.length > 0) {
-              const transactionsMessage = formatTransactions(transactions);
-              await sendTelegramMessage(chatId, `🧾 Transactions for account ${userStates[chatId].selectedAccount.id} in the last ${days} days:\n\n${transactionsMessage}`);
-            } else {
-              await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${userStates[chatId].selectedAccount.id} in the last ${days} days.`);
-            }
-            userStates[chatId] = { state: 'idle' };
-          }
-          break;
-        default:
-          await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
+    } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_days') {
+      const days = parseInt(text);
+      if (isNaN(days) || days < 1 || days > 31) {
+        await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
+      } else {
+        await fetchAndSendStatement(chatId, userStates[chatId].selectedAccount, days);
+        userStates[chatId] = { state: 'idle' };
       }
     } else {
       await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
     }
+  } else if (body.callback_query) {
+    const chatId = body.callback_query.message.chat.id;
+    const data = body.callback_query.data;
+    
+    if (data.startsWith('account:')) {
+      const accountId = data.split(':')[1];
+      userStates[chatId] = { state: 'awaiting_days', selectedAccount: accountId };
+      await sendTelegramMessage(chatId, "For how many days would you like to see the statement? (1-31)");
+    }
+  }
+}
+
+async function fetchAndSendStatement(chatId, accountId, days) {
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - (days * 86400);
+  const transactions = await getAccountStatement(accountId, from, now);
+  if (transactions && transactions.length > 0) {
+    const transactionsMessage = formatTransactions(transactions);
+    await sendTelegramMessage(chatId, `🧾 Transactions for account ${accountId} in the last ${days} days:\n\n${transactionsMessage}`);
+  } else {
+    await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${accountId} in the last ${days} days.`);
   }
 }
 
