@@ -59,7 +59,7 @@ function formatClientInfo(clientInfo) {
 }
 
 function formatTransactions(transactions, currency) {
-  let formatted = "🧾 Recent Transactions:\n\n";
+  let formatted = "";
   for (const transaction of transactions) {
     formatted += `📅 Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
     formatted += `💸 Amount: ${transaction.amount / 100} ${currency}\n`;
@@ -92,9 +92,8 @@ async function handleTelegramWebhook(body) {
     const text = body.message.text.toLowerCase();
 
     if (text === '/start') {
-      await sendTelegramMessage(chatId, "👋 Welcome! Available commands:\n\n" +
-        "📊 /account_info - Get account information and select an account for statement\n" +
-        "🔄 /cancel - Cancel the current operation");
+      await sendTelegramMessage(chatId, "👋 Welcome! Available command:\n\n" +
+        "📊 /account_info - Get account information and select an account for statement");
       userStates[chatId] = { state: 'idle' };
     } else if (text === '/account_info') {
       const clientInfo = await getClientInfo();
@@ -112,9 +111,6 @@ async function handleTelegramWebhook(body) {
       } else {
         await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
       }
-    } else if (text === '/cancel') {
-      userStates[chatId] = { state: 'idle' };
-      await sendTelegramMessage(chatId, "Operation cancelled. What would you like to do next?");
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_days') {
       const days = parseInt(text);
       if (isNaN(days) || days < 1 || days > 31) {
