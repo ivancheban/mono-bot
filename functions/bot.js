@@ -47,21 +47,22 @@ function formatClientInfo(clientInfo) {
   formatted += `Name: ${clientInfo.name}\n\n`;
   formatted += `💳 Accounts:\n`;
   clientInfo.accounts.forEach((account, index) => {
-    formatted += `${index + 1}. ID: ${account.id}\n`;
-    formatted += `   💱 Currency: ${getCurrencySymbol(account.currencyCode)}\n`;
-    formatted += `   💰 Balance: ${account.balance / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
-    formatted += `   💳 Credit Limit: ${account.creditLimit / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
+    const balance = account.balance / 100;
+    const currency = getCurrencySymbol(account.currencyCode);
+    formatted += `${index + 1}. ${balance} ${currency} ${account.type}\n`;
+    formatted += `   💰 Balance: ${balance} ${currency}\n`;
+    formatted += `   💳 Credit Limit: ${account.creditLimit / 100} ${currency}\n`;
     formatted += `   📊 Type: ${account.type}\n\n`;
   });
-  formatted += "Click on an account ID below to get a statement.";
+  formatted += "Click on an account below to get a statement.";
   return formatted;
 }
 
-function formatTransactions(transactions) {
+function formatTransactions(transactions, currency) {
   let formatted = "🧾 Recent Transactions:\n\n";
   for (const transaction of transactions) {
     formatted += `📅 Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
-    formatted += `💸 Amount: ${transaction.amount / 100} ${getCurrencySymbol(transaction.currencyCode)}\n`;
+    formatted += `💸 Amount: ${transaction.amount / 100} ${currency}\n`;
     formatted += `📝 Description: ${transaction.description}\n\n`;
   }
   return formatted;
@@ -100,7 +101,11 @@ async function handleTelegramWebhook(body) {
       if (clientInfo) {
         const formattedInfo = formatClientInfo(clientInfo);
         const keyboard = {
-          inline_keyboard: clientInfo.accounts.map(account => [{text: account.id, callback_data: `account:${account.id}`}])
+          inline_keyboard: clientInfo.accounts.map((account, index) => {
+            const balance = account.balance / 100;
+            const currency = getCurrencySymbol(account.currencyCode);
+            return [{text: `${balance} ${currency} ${account.type}`, callback_data: `account:${index}`}];
+          })
         };
         await sendTelegramMessage(chatId, formattedInfo, keyboard);
         userStates[chatId] = { state: 'awaiting_days', accounts: clientInfo.accounts };
@@ -126,22 +131,28 @@ async function handleTelegramWebhook(body) {
     const data = body.callback_query.data;
     
     if (data.startsWith('account:')) {
-      const accountId = data.split(':')[1];
-      userStates[chatId] = { state: 'awaiting_days', selectedAccount: accountId };
+      const accountIndex = parseInt(data.split(':')[1]);
+      const selectedAccount = userStates[chatId].accounts[accountIndex];
+      userStates[chatId] = { 
+        state: 'awaiting_days', 
+        selectedAccount: selectedAccount
+      };
       await sendTelegramMessage(chatId, "For how many days would you like to see the statement? (1-31)");
     }
   }
 }
 
-async function fetchAndSendStatement(chatId, accountId, days) {
+async function fetchAndSendStatement(chatId, account, days) {
   const now = Math.floor(Date.now() / 1000);
   const from = now - (days * 86400);
-  const transactions = await getAccountStatement(accountId, from, now);
+  const transactions = await getAccountStatement(account.id, from, now);
+  const balance = account.balance / 100;
+  const currency = getCurrencySymbol(account.currencyCode);
   if (transactions && transactions.length > 0) {
-    const transactionsMessage = formatTransactions(transactions);
-    await sendTelegramMessage(chatId, `🧾 Transactions for account ${accountId} in the last ${days} days:\n\n${transactionsMessage}`);
+    const transactionsMessage = formatTransactions(transactions, currency);
+    await sendTelegramMessage(chatId, `🧾 Transactions for account ${balance} ${currency} ${account.type} in the last ${days} days:\n\n${transactionsMessage}`);
   } else {
-    await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${accountId} in the last ${days} days.`);
+    await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${balance} ${currency} ${account.type} in the last ${days} days.`);
   }
 }
 
