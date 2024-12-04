@@ -3,11 +3,11 @@ const axios = require('axios');
 const MONOBANK_CLIENT_INFO_URL = "https://api.monobank.ua/personal/client-info";
 const MONOBANK_STATEMENT_URL = "https://api.monobank.ua/personal/statement";
 
-const MONOBANK_API_TOKEN = process.env.MONOBANK_API_TOKEN;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Store user states
+// Store user states and tokens
 const userStates = {};
+const userTokens = {};
 
 function getCurrencySymbol(currencyCode) {
   switch (currencyCode) {
@@ -18,10 +18,10 @@ function getCurrencySymbol(currencyCode) {
   }
 }
 
-async function getClientInfo() {
+async function getClientInfo(token) {
   try {
     const response = await axios.get(MONOBANK_CLIENT_INFO_URL, {
-      headers: { "X-Token": MONOBANK_API_TOKEN }
+      headers: { "X-Token": token }
     });
     return response.data;
   } catch (error) {
@@ -30,10 +30,10 @@ async function getClientInfo() {
   }
 }
 
-async function getAccountStatement(account, from, to) {
+async function getAccountStatement(token, account, from, to) {
   try {
     const response = await axios.get(`${MONOBANK_STATEMENT_URL}/${account}/${from}/${to}`, {
-      headers: { "X-Token": MONOBANK_API_TOKEN }
+      headers: { "X-Token": token }
     });
     return response.data;
   } catch (error) {
@@ -89,14 +89,22 @@ async function sendTelegramMessage(chatId, message, keyboard = null) {
 async function handleTelegramWebhook(body) {
   if (body.message && body.message.text) {
     const chatId = body.message.chat.id;
-    const text = body.message.text.toLowerCase();
+    const text = body.message.text;
 
     if (text === '/start') {
-      await sendTelegramMessage(chatId, "👋 Welcome! Available command:\n\n" +
+      await sendTelegramMessage(chatId, "👋 Welcome! Please enter your Monobank API token to get started.");
+      userStates[chatId] = { state: 'awaiting_token' };
+    } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_token') {
+      userTokens[chatId] = text;
+      await sendTelegramMessage(chatId, "Token saved. Available command:\n\n" +
         "📊 /account_info - Get account information and select an account for statement");
       userStates[chatId] = { state: 'idle' };
     } else if (text === '/account_info') {
-      const clientInfo = await getClientInfo();
+      if (!userTokens[chatId]) {
+        await sendTelegramMessage(chatId, "Please start over with /start and enter your Monobank API token.");
+        return;
+      }
+      const clientInfo = await getClientInfo(userTokens[chatId]);
       if (clientInfo) {
         const formattedInfo = formatClientInfo(clientInfo);
         const keyboard = {
@@ -109,7 +117,7 @@ async function handleTelegramWebhook(body) {
         await sendTelegramMessage(chatId, formattedInfo, keyboard);
         userStates[chatId] = { state: 'awaiting_days', accounts: clientInfo.accounts };
       } else {
-        await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
+        await sendTelegramMessage(chatId, "❌ Failed to fetch account information. Please check your token and try again with /start.");
       }
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_days') {
       const days = parseInt(text);
@@ -120,7 +128,7 @@ async function handleTelegramWebhook(body) {
         userStates[chatId] = { state: 'idle' };
       }
     } else {
-      await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
+      await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to begin or /account_info to view your accounts.");
     }
   } else if (body.callback_query) {
     const chatId = body.callback_query.message.chat.id;
@@ -141,7 +149,7 @@ async function handleTelegramWebhook(body) {
 async function fetchAndSendStatement(chatId, account, days) {
   const now = Math.floor(Date.now() / 1000);
   const from = now - (days * 86400);
-  const transactions = await getAccountStatement(account.id, from, now);
+  const transactions = await getAccountStatement(userTokens[chatId], account.id, from, now);
   const balance = account.balance / 100;
   const currency = getCurrencySymbol(account.currencyCode);
   if (transactions && transactions.length > 0) {
