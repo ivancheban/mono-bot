@@ -1,16 +1,14 @@
 const axios = require('axios');
 
-// Monobank API endpoints
 const MONOBANK_CLIENT_INFO_URL = "https://api.monobank.ua/personal/client-info";
 const MONOBANK_STATEMENT_URL = "https://api.monobank.ua/personal/statement";
 
-// Your Monobank API token
 const MONOBANK_API_TOKEN = process.env.MONOBANK_API_TOKEN;
-
-// Your Telegram Bot token
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Helper function to convert currency code to symbol
+// Store user states
+const userStates = {};
+
 function getCurrencySymbol(currencyCode) {
   switch (currencyCode) {
     case 980: return 'UAH';
@@ -48,13 +46,14 @@ function formatClientInfo(clientInfo) {
   let formatted = "👤 Client Information:\n\n";
   formatted += `Name: ${clientInfo.name}\n\n`;
   formatted += `💳 Accounts:\n`;
-  for (const account of clientInfo.accounts) {
-    formatted += `- ID: ${account.id}\n`;
-    formatted += `  💱 Currency: ${getCurrencySymbol(account.currencyCode)}\n`;
-    formatted += `  💰 Balance: ${account.balance / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
-    formatted += `  💳 Credit Limit: ${account.creditLimit / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
-    formatted += `  📊 Type: ${account.type}\n\n`;
-  }
+  clientInfo.accounts.forEach((account, index) => {
+    formatted += `${index + 1}. ID: ${account.id}\n`;
+    formatted += `   💱 Currency: ${getCurrencySymbol(account.currencyCode)}\n`;
+    formatted += `   💰 Balance: ${account.balance / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
+    formatted += `   💳 Credit Limit: ${account.creditLimit / 100} ${getCurrencySymbol(account.currencyCode)}\n`;
+    formatted += `   📊 Type: ${account.type}\n\n`;
+  });
+  formatted += "To get a statement, reply with the number of the account you want to view.";
   return formatted;
 }
 
@@ -68,13 +67,17 @@ function formatTransactions(transactions) {
   return formatted;
 }
 
-async function sendTelegramMessage(chatId, message) {
+async function sendTelegramMessage(chatId, message, keyboard = null) {
   try {
-    const response = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const payload = {
       chat_id: chatId,
       text: message,
       parse_mode: 'HTML'
-    });
+    };
+    if (keyboard) {
+      payload.reply_markup = JSON.stringify(keyboard);
+    }
+    const response = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, payload);
     console.log("Telegram API response:", response.data);
   } catch (error) {
     console.error("Failed to send Telegram message", error.response ? error.response.data : error.message);
@@ -86,54 +89,59 @@ async function handleTelegramWebhook(body) {
   const { message } = body;
   if (message && message.text) {
     const chatId = message.chat.id;
-    const command = message.text.split(' ')[0].toLowerCase();
-    const args = message.text.split(' ').slice(1);
+    const text = message.text.toLowerCase();
 
-    switch (command) {
-      case '/start':
-        await sendTelegramMessage(chatId, "👋 Welcome! Available commands:\n\n" +
-          "📊 /account_info - Get account information\n" +
-          "🧾 /statement <card_id> <days> - Get statement for specified account and number of days");
-        break;
-      
-      case '/account_info':
-        const clientInfo = await getClientInfo();
-        if (clientInfo) {
-          const formattedInfo = formatClientInfo(clientInfo);
-          await sendTelegramMessage(chatId, formattedInfo);
-        } else {
-          await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
-        }
-        break;
-      
-      case '/statement':
-        if (args.length !== 2) {
-          await sendTelegramMessage(chatId, "ℹ️ Enter the card ID and the number of days to show transactions. For example, <code>dxY...5w 3</code> will list transactions for the selected card ID for three days.");
+    if (text === '/start') {
+      await sendTelegramMessage(chatId, "👋 Welcome! Available commands:\n\n" +
+        "📊 /account_info - Get account information and select an account for statement\n" +
+        "🔄 /cancel - Cancel the current operation");
+      userStates[chatId] = { state: 'idle' };
+    } else if (text === '/account_info') {
+      const clientInfo = await getClientInfo();
+      if (clientInfo) {
+        const formattedInfo = formatClientInfo(clientInfo);
+        await sendTelegramMessage(chatId, formattedInfo);
+        userStates[chatId] = { state: 'awaiting_account_selection', accounts: clientInfo.accounts };
+      } else {
+        await sendTelegramMessage(chatId, "❌ Failed to fetch account information.");
+      }
+    } else if (text === '/cancel') {
+      userStates[chatId] = { state: 'idle' };
+      await sendTelegramMessage(chatId, "Operation cancelled. What would you like to do next?");
+    } else if (userStates[chatId]) {
+      switch (userStates[chatId].state) {
+        case 'awaiting_account_selection':
+          const accountIndex = parseInt(text) - 1;
+          if (isNaN(accountIndex) || accountIndex < 0 || accountIndex >= userStates[chatId].accounts.length) {
+            await sendTelegramMessage(chatId, "⚠️ Invalid selection. Please choose a number from the list.");
+          } else {
+            userStates[chatId].selectedAccount = userStates[chatId].accounts[accountIndex];
+            userStates[chatId].state = 'awaiting_days';
+            await sendTelegramMessage(chatId, "For how many days would you like to see the statement? (1-31)");
+          }
           break;
-        }
-        
-        const accountId = args[0];
-        const days = parseInt(args[1]);
-        
-        if (isNaN(days) || days <= 0 || days > 31) {
-          await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
+        case 'awaiting_days':
+          const days = parseInt(text);
+          if (isNaN(days) || days < 1 || days > 31) {
+            await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
+          } else {
+            const now = Math.floor(Date.now() / 1000);
+            const from = now - (days * 86400);
+            const transactions = await getAccountStatement(userStates[chatId].selectedAccount.id, from, now);
+            if (transactions && transactions.length > 0) {
+              const transactionsMessage = formatTransactions(transactions);
+              await sendTelegramMessage(chatId, `🧾 Transactions for account ${userStates[chatId].selectedAccount.id} in the last ${days} days:\n\n${transactionsMessage}`);
+            } else {
+              await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${userStates[chatId].selectedAccount.id} in the last ${days} days.`);
+            }
+            userStates[chatId] = { state: 'idle' };
+          }
           break;
-        }
-        
-        const now = Math.floor(Date.now() / 1000);
-        const from = now - (days * 86400); // Convert days to seconds
-        
-        const transactions = await getAccountStatement(accountId, from, now);
-        if (transactions && transactions.length > 0) {
-          const transactionsMessage = formatTransactions(transactions);
-          await sendTelegramMessage(chatId, `🧾 Transactions for account ${accountId} in the last ${days} days:\n\n${transactionsMessage}`);
-        } else {
-          await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${accountId} in the last ${days} days.`);
-        }
-        break;
-
-      default:
-        await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
+        default:
+          await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
+      }
+    } else {
+      await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to see available commands.");
     }
   }
 }
