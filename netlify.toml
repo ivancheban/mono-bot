@@ -1,8 +1,14 @@
 [build]
   functions = "functions"
+  command = "npm install"
+
+[[redirects]]
+  from = "/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
 
 [functions]
   external_node_modules = ["axios"]
 
-[[plugins]]
-  package = "@netlify/plugin-functions-core"
+[functions."functions/bot"]
+  included_files = ["functions/bot.js"]
