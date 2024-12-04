@@ -1,0 +1,9 @@
+{
+  "name": "bot",
+  "version": "1.0.0",
+  "description": "Monobank Telegram Bot",
+  "dependencies": {
+    "axios": "^0.21.1",
+    "@netlify/functions": "^1.0.0"
+  }
+}
