@@ -10,6 +10,9 @@ const MONOBANK_API_TOKEN = process.env.MONOBANK_API_TOKEN;
 // Your Telegram Bot token
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
+// Telegram chat ID where you want to send the messages
+const CHAT_ID = process.env.CHAT_ID;
+
 async function getClientInfo() {
   try {
     const response = await axios.get(MONOBANK_CLIENT_INFO_URL, {
@@ -58,10 +61,10 @@ function formatTransactions(transactions) {
   return formatted;
 }
 
-async function sendTelegramMessage(chatId, message) {
+async function sendTelegramMessage(message) {
   try {
     await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      chat_id: chatId,
+      chat_id: CHAT_ID,
       text: message
     });
   } catch (error) {
@@ -72,28 +75,27 @@ async function sendTelegramMessage(chatId, message) {
 async function handleTelegramWebhook(body) {
   const { message } = body;
   if (message && message.text) {
-    const chatId = message.chat.id;
     const command = message.text.split(' ')[0].toLowerCase();
     const args = message.text.split(' ').slice(1);
 
     switch (command) {
       case '/start':
-        await sendTelegramMessage(chatId, "Welcome! Available commands:\n/account_info - Get account information\n/statement <account_id> <days> - Get statement for specified account and number of days");
+        await sendTelegramMessage("Welcome! Available commands:\n/account_info - Get account information\n/statement <account_id> <days> - Get statement for specified account and number of days");
         break;
       
       case '/account_info':
         const clientInfo = await getClientInfo();
         if (clientInfo) {
           const formattedInfo = formatClientInfo(clientInfo);
-          await sendTelegramMessage(chatId, formattedInfo);
+          await sendTelegramMessage(formattedInfo);
         } else {
-          await sendTelegramMessage(chatId, "Failed to fetch account information.");
+          await sendTelegramMessage("Failed to fetch account information.");
         }
         break;
       
       case '/statement':
         if (args.length !== 2) {
-          await sendTelegramMessage(chatId, "Usage: /statement <account_id> <days>");
+          await sendTelegramMessage("Usage: /statement <account_id> <days>");
           break;
         }
         
@@ -101,7 +103,7 @@ async function handleTelegramWebhook(body) {
         const days = parseInt(args[1]);
         
         if (isNaN(days) || days <= 0 || days > 31) {
-          await sendTelegramMessage(chatId, "Please provide a valid number of days (1-31).");
+          await sendTelegramMessage("Please provide a valid number of days (1-31).");
           break;
         }
         
@@ -111,14 +113,24 @@ async function handleTelegramWebhook(body) {
         const transactions = await getAccountStatement(accountId, from, now);
         if (transactions && transactions.length > 0) {
           const transactionsMessage = formatTransactions(transactions);
-          await sendTelegramMessage(chatId, `Transactions for account ${accountId} in the last ${days} days:\n${transactionsMessage}`);
+          await sendTelegramMessage(`Transactions for account ${accountId} in the last ${days} days:\n${transactionsMessage}`);
         } else {
-          await sendTelegramMessage(chatId, `No transactions found for account ${accountId} in the last ${days} days.`);
+          await sendTelegramMessage(`No transactions found for account ${accountId} in the last ${days} days.`);
         }
         break;
       
+      case '/rebuild':
+        try {
+          await axios.post('https://api.netlify.com/build_hooks/675079f5f28b9125fc54536e');
+          await sendTelegramMessage("Build triggered successfully.");
+        } catch (error) {
+          console.error("Failed to trigger build", error);
+          await sendTelegramMessage("Failed to trigger build.");
+        }
+        break;
+
       default:
-        await sendTelegramMessage(chatId, "Unknown command. Use /start to see available commands.");
+        await sendTelegramMessage("Unknown command. Use /start to see available commands.");
     }
   }
 }
