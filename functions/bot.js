@@ -14,7 +14,7 @@ const userLanguages = {};
 const translations = {
   en: {
     welcome: "👋 Welcome! Please select your language:",
-    languageSelected: "Language set to English. To get started, you need to enter your Monobank API token.\n\nYou can obtain your token here: https://api.monobank.ua/index.html\n\nPlease enter your token now:",
+    languageSelected: "Language set to English. To get started, you need to follow the link, authorize in the Monobank app, copy the Monobank API token, and paste it into the bot.\n\nYou can obtain your token here: https://api.monobank.ua/index.html\n\nPlease paste your token in the message below:",
     tokenVerified: "✅ Token verified and saved successfully. Available command:\n\n📊 /account_info - Get account information and select an account for statement",
     invalidToken: "❌ Invalid token. Error: {error}\n\nPlease try again with /start and enter a valid token.",
     enterToken: "Please start over with /start and enter your Monobank API token.",
@@ -27,7 +27,7 @@ const translations = {
   },
   uk: {
     welcome: "👋 Вітаємо! Будь ласка, оберіть мову:",
-    languageSelected: "Мову встановлено на українську. Щоб почати, вам потрібно ввести токен API Monobank.\n\nВи можете отримати свій токен тут: https://api.monobank.ua/index.html\n\nБудь ласка, введіть свій токен зараз:",
+    languageSelected: "Мову встановлено на українську. Щоб почати, вам потрібно перейти за посиланням, авторизуватися в застосунку Monobank, скопіювати токен API Monobank і вставити його в бот.\n\nВи можете отримати свій токен тут: https://api.monobank.ua/index.html\n\nБудь ласка, вставте свій токен в повідомленні нижче:",
     tokenVerified: "✅ Токен перевірено та успішно збережено. Доступна команда:\n\n📊 /account_info - Отримати інформацію про рахунок та вибрати рахунок для виписки",
     invalidToken: "❌ Недійсний токен. Помилка: {error}\n\nБудь ласка, спробуйте знову з /start і введіть дійсний токен.",
     enterToken: "Будь ласка, почніть знову з /start і введіть свій токен API Monobank.",
