@@ -25,8 +25,8 @@ async function getClientInfo(token) {
     });
     return response.data;
   } catch (error) {
-    console.error("Failed to get client info", error);
-    return null;
+    console.error("Failed to get client info", error.response ? error.response.data : error.message);
+    return { error: error.response ? error.response.data : error.message };
   }
 }
 
@@ -37,8 +37,8 @@ async function getAccountStatement(token, account, from, to) {
     });
     return response.data;
   } catch (error) {
-    console.error("Failed to get account statement", error);
-    return null;
+    console.error("Failed to get account statement", error.response ? error.response.data : error.message);
+    return { error: error.response ? error.response.data : error.message };
   }
 }
 
@@ -98,13 +98,14 @@ async function handleTelegramWebhook(body) {
       userStates[chatId] = { state: 'awaiting_token' };
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_token') {
       userTokens[chatId] = text;
-      const clientInfo = await getClientInfo(userTokens[chatId]);
-      if (clientInfo) {
+      const clientInfoResponse = await getClientInfo(userTokens[chatId]);
+      if (clientInfoResponse && !clientInfoResponse.error) {
         await sendTelegramMessage(chatId, "✅ Token verified and saved successfully. Available command:\n\n" +
           "📊 /account_info - Get account information and select an account for statement");
         userStates[chatId] = { state: 'idle' };
       } else {
-        await sendTelegramMessage(chatId, "❌ Invalid token. Please try again with /start and enter a valid token.");
+        const errorMessage = clientInfoResponse.error ? JSON.stringify(clientInfoResponse.error) : "Unknown error";
+        await sendTelegramMessage(chatId, `❌ Invalid token. Error: ${errorMessage}\n\nPlease try again with /start and enter a valid token.`);
         delete userTokens[chatId];
         userStates[chatId] = { state: 'idle' };
       }
@@ -114,7 +115,7 @@ async function handleTelegramWebhook(body) {
         return;
       }
       const clientInfo = await getClientInfo(userTokens[chatId]);
-      if (clientInfo) {
+      if (clientInfo && !clientInfo.error) {
         const formattedInfo = formatClientInfo(clientInfo);
         const keyboard = {
           inline_keyboard: clientInfo.accounts.map((account, index) => {
@@ -126,7 +127,8 @@ async function handleTelegramWebhook(body) {
         await sendTelegramMessage(chatId, formattedInfo, keyboard);
         userStates[chatId] = { state: 'awaiting_days', accounts: clientInfo.accounts };
       } else {
-        await sendTelegramMessage(chatId, "❌ Failed to fetch account information. Please check your token and try again with /start.");
+        const errorMessage = clientInfo.error ? JSON.stringify(clientInfo.error) : "Unknown error";
+        await sendTelegramMessage(chatId, `❌ Failed to fetch account information. Error: ${errorMessage}\n\nPlease check your token and try again with /start.`);
       }
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_days') {
       const days = parseInt(text);
@@ -159,13 +161,18 @@ async function fetchAndSendStatement(chatId, account, days) {
   const now = Math.floor(Date.now() / 1000);
   const from = now - (days * 86400);
   const transactions = await getAccountStatement(userTokens[chatId], account.id, from, now);
-  const balance = account.balance / 100;
-  const currency = getCurrencySymbol(account.currencyCode);
-  if (transactions && transactions.length > 0) {
-    const transactionsMessage = formatTransactions(transactions, currency);
-    await sendTelegramMessage(chatId, `🧾 Transactions for account ${balance} ${currency} ${account.type} in the last ${days} days:\n\n${transactionsMessage}`);
+  if (transactions && !transactions.error) {
+    const balance = account.balance / 100;
+    const currency = getCurrencySymbol(account.currencyCode);
+    if (transactions.length > 0) {
+      const transactionsMessage = formatTransactions(transactions, currency);
+      await sendTelegramMessage(chatId, `🧾 Transactions for account ${balance} ${currency} ${account.type} in the last ${days} days:\n\n${transactionsMessage}`);
+    } else {
+      await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${balance} ${currency} ${account.type} in the last ${days} days.`);
+    }
   } else {
-    await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${balance} ${currency} ${account.type} in the last ${days} days.`);
+    const errorMessage = transactions.error ? JSON.stringify(transactions.error) : "Unknown error";
+    await sendTelegramMessage(chatId, `❌ Failed to fetch transactions. Error: ${errorMessage}`);
   }
 }
 
