@@ -68,6 +68,30 @@ This Telegram bot allows users to fetch and view their Monobank account informat
 - `package.json`: Project dependencies
 - `netlify.toml`: Netlify configuration file
 
+## Token Storage and Security
+
+This bot handles Monobank API tokens, which are sensitive pieces of information. Here's how tokens are currently managed in this implementation:
+
+1. **Temporary Memory Storage**: 
+   - Tokens are stored in a JavaScript object (`userTokens`) in the server's memory (RAM).
+   - This object is created anew with each function invocation and does not persist between invocations.
+
+2. **Isolation**:
+   - Each instance of the Netlify function runs in isolation.
+   - One user cannot access another user's token through this implementation.
+
+3. **No Persistent Storage**:
+   - Tokens are not stored in any database or file system.
+   - They are not logged or stored in Netlify logs by default.
+
+4. **Temporary Nature**:
+   - Tokens only exist in memory for the duration of each function execution.
+   - Once the function execution is complete, that memory is cleared.
+
+5. **Limitations**:
+   - Users need to re-enter their token every time they start a new session with the bot.
+   - This approach doesn't provide persistence between bot restarts or server downtime.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
