@@ -5,9 +5,40 @@ const MONOBANK_STATEMENT_URL = "https://api.monobank.ua/personal/statement";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
-// Store user states and tokens
+// Store user states, tokens, and language preferences
 const userStates = {};
 const userTokens = {};
+const userLanguages = {};
+
+// Translations
+const translations = {
+  en: {
+    welcome: "👋 Welcome! Please select your language:",
+    languageSelected: "Language set to English. To get started, you need to enter your Monobank API token.\n\nYou can obtain your token here: https://api.monobank.ua/index.html\n\nPlease enter your token now:",
+    tokenVerified: "✅ Token verified and saved successfully. Available command:\n\n📊 /account_info - Get account information and select an account for statement",
+    invalidToken: "❌ Invalid token. Error: {error}\n\nPlease try again with /start and enter a valid token.",
+    enterToken: "Please start over with /start and enter your Monobank API token.",
+    accountInfoFailed: "❌ Failed to fetch account information. Error: {error}\n\nPlease check your token and try again with /start.",
+    enterDays: "For how many days would you like to see the statement? (1-31)",
+    invalidDays: "⚠️ Please provide a valid number of days (1-31).",
+    unknownCommand: "❓ Unknown command. Use /start to begin or /account_info to view your accounts.",
+    noTransactions: "ℹ️ No transactions found for account {balance} {currency} {type} in the last {days} days.",
+    transactionsFailed: "❌ Failed to fetch transactions. Error: {error}",
+  },
+  uk: {
+    welcome: "👋 Вітаємо! Будь ласка, оберіть мову:",
+    languageSelected: "Мову встановлено на українську. Щоб почати, вам потрібно ввести токен API Monobank.\n\nВи можете отримати свій токен тут: https://api.monobank.ua/index.html\n\nБудь ласка, введіть свій токен зараз:",
+    tokenVerified: "✅ Токен перевірено та успішно збережено. Доступна команда:\n\n📊 /account_info - Отримати інформацію про рахунок та вибрати рахунок для виписки",
+    invalidToken: "❌ Недійсний токен. Помилка: {error}\n\nБудь ласка, спробуйте знову з /start і введіть дійсний токен.",
+    enterToken: "Будь ласка, почніть знову з /start і введіть свій токен API Monobank.",
+    accountInfoFailed: "❌ Не вдалося отримати інформацію про рахунок. Помилка: {error}\n\nБудь ласка, перевірте свій токен і спробуйте знову з /start.",
+    enterDays: "За скільки днів ви хочете побачити виписку? (1-31)",
+    invalidDays: "⚠️ Будь ласка, вкажіть дійсну кількість днів (1-31).",
+    unknownCommand: "❓ Невідома команда. Використовуйте /start для початку або /account_info для перегляду ваших рахунків.",
+    noTransactions: "ℹ️ Не знайдено транзакцій для рахунку {balance} {currency} {type} за останні {days} днів.",
+    transactionsFailed: "❌ Не вдалося отримати транзакції. Помилка: {error}",
+  }
+};
 
 function getCurrencySymbol(currencyCode) {
   switch (currencyCode) {
@@ -42,28 +73,28 @@ async function getAccountStatement(token, account, from, to) {
   }
 }
 
-function formatClientInfo(clientInfo) {
-  let formatted = "👤 Client Information:\n\n";
-  formatted += `Name: ${clientInfo.name}\n\n`;
-  formatted += `💳 Accounts:\n`;
+function formatClientInfo(clientInfo, lang) {
+  let formatted = lang === 'uk' ? "👤 Інформація про клієнта:\n\n" : "👤 Client Information:\n\n";
+  formatted += `${lang === 'uk' ? "Ім'я" : "Name"}: ${clientInfo.name}\n\n`;
+  formatted += `${lang === 'uk' ? "💳 Рахунки" : "💳 Accounts"}:\n`;
   clientInfo.accounts.forEach((account, index) => {
     const balance = account.balance / 100;
     const currency = getCurrencySymbol(account.currencyCode);
     formatted += `${index + 1}. ${balance} ${currency} ${account.type}\n`;
-    formatted += `   💰 Balance: ${balance} ${currency}\n`;
-    formatted += `   💳 Credit Limit: ${account.creditLimit / 100} ${currency}\n`;
-    formatted += `   📊 Type: ${account.type}\n\n`;
+    formatted += `   💰 ${lang === 'uk' ? "Баланс" : "Balance"}: ${balance} ${currency}\n`;
+    formatted += `   💳 ${lang === 'uk' ? "Кредитний ліміт" : "Credit Limit"}: ${account.creditLimit / 100} ${currency}\n`;
+    formatted += `   📊 ${lang === 'uk' ? "Тип" : "Type"}: ${account.type}\n\n`;
   });
-  formatted += "Click on an account below to get a statement.";
+  formatted += lang === 'uk' ? "Натисніть на рахунок нижче, щоб отримати виписку." : "Click on an account below to get a statement.";
   return formatted;
 }
 
-function formatTransactions(transactions, currency) {
+function formatTransactions(transactions, currency, lang) {
   let formatted = "";
   for (const transaction of transactions) {
-    formatted += `📅 Date: ${new Date(transaction.time * 1000).toISOString()}\n`;
-    formatted += `💸 Amount: ${transaction.amount / 100} ${currency}\n`;
-    formatted += `📝 Description: ${transaction.description}\n\n`;
+    formatted += `📅 ${lang === 'uk' ? "Дата" : "Date"}: ${new Date(transaction.time * 1000).toISOString()}\n`;
+    formatted += `💸 ${lang === 'uk' ? "Сума" : "Amount"}: ${transaction.amount / 100} ${currency}\n`;
+    formatted += `📝 ${lang === 'uk' ? "Опис" : "Description"}: ${transaction.description}\n\n`;
   }
   return formatted;
 }
@@ -90,33 +121,37 @@ async function handleTelegramWebhook(body) {
   if (body.message && body.message.text) {
     const chatId = body.message.chat.id;
     const text = body.message.text;
+    const lang = userLanguages[chatId] || 'en';
 
     if (text === '/start') {
-      await sendTelegramMessage(chatId, "👋 Welcome! To get started, you need to enter your Monobank API token.\n\n" +
-        "You can obtain your token here: https://api.monobank.ua/index.html\n\n" +
-        "Please enter your token now:");
-      userStates[chatId] = { state: 'awaiting_token' };
+      const keyboard = {
+        inline_keyboard: [
+          [{ text: "English", callback_data: "lang:en" }],
+          [{ text: "Українська", callback_data: "lang:uk" }]
+        ]
+      };
+      await sendTelegramMessage(chatId, translations[lang].welcome, keyboard);
+      userStates[chatId] = { state: 'selecting_language' };
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_token') {
       userTokens[chatId] = text;
       const clientInfoResponse = await getClientInfo(userTokens[chatId]);
       if (clientInfoResponse && !clientInfoResponse.error) {
-        await sendTelegramMessage(chatId, "✅ Token verified and saved successfully. Available command:\n\n" +
-          "📊 /account_info - Get account information and select an account for statement");
+        await sendTelegramMessage(chatId, translations[lang].tokenVerified);
         userStates[chatId] = { state: 'idle' };
       } else {
         const errorMessage = clientInfoResponse.error ? JSON.stringify(clientInfoResponse.error) : "Unknown error";
-        await sendTelegramMessage(chatId, `❌ Invalid token. Error: ${errorMessage}\n\nPlease try again with /start and enter a valid token.`);
+        await sendTelegramMessage(chatId, translations[lang].invalidToken.replace('{error}', errorMessage));
         delete userTokens[chatId];
         userStates[chatId] = { state: 'idle' };
       }
     } else if (text === '/account_info') {
       if (!userTokens[chatId]) {
-        await sendTelegramMessage(chatId, "Please start over with /start and enter your Monobank API token.");
+        await sendTelegramMessage(chatId, translations[lang].enterToken);
         return;
       }
       const clientInfo = await getClientInfo(userTokens[chatId]);
       if (clientInfo && !clientInfo.error) {
-        const formattedInfo = formatClientInfo(clientInfo);
+        const formattedInfo = formatClientInfo(clientInfo, lang);
         const keyboard = {
           inline_keyboard: clientInfo.accounts.map((account, index) => {
             const balance = account.balance / 100;
@@ -128,31 +163,37 @@ async function handleTelegramWebhook(body) {
         userStates[chatId] = { state: 'awaiting_days', accounts: clientInfo.accounts };
       } else {
         const errorMessage = clientInfo.error ? JSON.stringify(clientInfo.error) : "Unknown error";
-        await sendTelegramMessage(chatId, `❌ Failed to fetch account information. Error: ${errorMessage}\n\nPlease check your token and try again with /start.`);
+        await sendTelegramMessage(chatId, translations[lang].accountInfoFailed.replace('{error}', errorMessage));
       }
     } else if (userStates[chatId] && userStates[chatId].state === 'awaiting_days') {
       const days = parseInt(text);
       if (isNaN(days) || days < 1 || days > 31) {
-        await sendTelegramMessage(chatId, "⚠️ Please provide a valid number of days (1-31).");
+        await sendTelegramMessage(chatId, translations[lang].invalidDays);
       } else {
         await fetchAndSendStatement(chatId, userStates[chatId].selectedAccount, days);
         userStates[chatId] = { state: 'idle' };
       }
     } else {
-      await sendTelegramMessage(chatId, "❓ Unknown command. Use /start to begin or /account_info to view your accounts.");
+      await sendTelegramMessage(chatId, translations[lang].unknownCommand);
     }
   } else if (body.callback_query) {
     const chatId = body.callback_query.message.chat.id;
     const data = body.callback_query.data;
     
-    if (data.startsWith('account:')) {
+    if (data.startsWith('lang:')) {
+      const selectedLang = data.split(':')[1];
+      userLanguages[chatId] = selectedLang;
+      await sendTelegramMessage(chatId, translations[selectedLang].languageSelected);
+      userStates[chatId] = { state: 'awaiting_token' };
+    } else if (data.startsWith('account:')) {
       const accountIndex = parseInt(data.split(':')[1]);
       const selectedAccount = userStates[chatId].accounts[accountIndex];
       userStates[chatId] = { 
         state: 'awaiting_days', 
         selectedAccount: selectedAccount
       };
-      await sendTelegramMessage(chatId, "For how many days would you like to see the statement? (1-31)");
+      const lang = userLanguages[chatId] || 'en';
+      await sendTelegramMessage(chatId, translations[lang].enterDays);
     }
   }
 }
@@ -161,18 +202,23 @@ async function fetchAndSendStatement(chatId, account, days) {
   const now = Math.floor(Date.now() / 1000);
   const from = now - (days * 86400);
   const transactions = await getAccountStatement(userTokens[chatId], account.id, from, now);
+  const lang = userLanguages[chatId] || 'en';
   if (transactions && !transactions.error) {
     const balance = account.balance / 100;
     const currency = getCurrencySymbol(account.currencyCode);
     if (transactions.length > 0) {
-      const transactionsMessage = formatTransactions(transactions, currency);
-      await sendTelegramMessage(chatId, `🧾 Transactions for account ${balance} ${currency} ${account.type} in the last ${days} days:\n\n${transactionsMessage}`);
+      const transactionsMessage = formatTransactions(transactions, currency, lang);
+      await sendTelegramMessage(chatId, `🧾 ${lang === 'uk' ? 'Транзакції для рахунку' : 'Transactions for account'} ${balance} ${currency} ${account.type} ${lang === 'uk' ? 'за останні' : 'in the last'} ${days} ${lang === 'uk' ? 'днів' : 'days'}:\n\n${transactionsMessage}`);
     } else {
-      await sendTelegramMessage(chatId, `ℹ️ No transactions found for account ${balance} ${currency} ${account.type} in the last ${days} days.`);
+      await sendTelegramMessage(chatId, translations[lang].noTransactions
+        .replace('{balance}', balance)
+        .replace('{currency}', currency)
+        .replace('{type}', account.type)
+        .replace('{days}', days));
     }
   } else {
     const errorMessage = transactions.error ? JSON.stringify(transactions.error) : "Unknown error";
-    await sendTelegramMessage(chatId, `❌ Failed to fetch transactions. Error: ${errorMessage}`);
+    await sendTelegramMessage(chatId, translations[lang].transactionsFailed.replace('{error}', errorMessage));
   }
 }
 
